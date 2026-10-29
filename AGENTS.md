@@ -26,6 +26,10 @@
 - 只给自己用的改动（部署方式、本文件的这一节、个人配置）→ 只提交到 `local`，不要放进 `fix/*`。
 - 上游拒绝或放弃的 PR → 从 `local` 上去掉（`git revert`），不让已废弃的改动留在 `local` 里。
 
+**PR 一律先给我看草稿，我同意后才提交**（这一条不分分支，任何时候都适用）：标题、正文全文、要提交的 diff 概要
+先发出来，等我说可以，才运行 `gh pr create`。不要自己决定开 PR，也不要把草稿改成 ready for review、关闭或重开 PR。
+仓库是公开的，PR 一旦提交就对外可见；我不同意时，草稿只能留在本地。
+
 同步与冲突：`fix/*` 与上游同步用 `git rebase upstream/main`（PR 历史保持干净，force-push 用 `--force-with-lease`）；
 `local` 与上游同步用 `git merge upstream/main`，不 force-push。
 
