@@ -97,19 +97,39 @@ export class KmoeService {
   /** Runs an operation on the session, saves rotated cookies, and turns login_required into an "expired" account state. */
   async withSession<T>(operation: (site: KmoeSite) => Promise<T>): Promise<T> {
     const site = this.site();
+    const startedAt = now();
     try {
       const result = await operation(site);
-      this.saveCookies(site);
+      this.saveCookies(site, startedAt);
       return result;
     } catch (error) {
-      if (error instanceof KmoeError && error.code === 'login_required') this.expire(error.message);
-      else this.saveCookies(site);
+      if (error instanceof KmoeError && error.code === 'login_required') {
+        // A page can ask for a login for reasons that say nothing about this session (a withheld comic, a redirect
+        // to /login.php for content we may not see). Ask the profile page; only a session that is really gone is
+        // marked expired, and even then the cookies stay (a wrong guess must not cost the password).
+        if (await this.alive(site)) this.saveCookies(site, startedAt);
+        else this.expire(error.message);
+        throw error;
+      }
+      this.saveCookies(site, startedAt);
       throw error;
     }
   }
 
-  private saveCookies(site: KmoeSite) {
-    this.db.run('UPDATE kmoe_account SET cookies = ?, updated_at = ? WHERE id = 1 AND state = ?', [this.sealer.seal(JSON.stringify(site.client.cookieJar())), now(), 'active']);
+  /** Whether the site still accepts this session (`/my.php`), whatever one page answered. Network trouble counts as alive. */
+  private async alive(site: KmoeSite): Promise<boolean> {
+    try { await site.account(); return true; }
+    catch (error) { return !(error instanceof KmoeError && error.code === 'login_required'); }
+  }
+
+  /**
+   * Saves the cookies a client ended with. `startedAt` guards against a slow request writing back the jar it started
+   * with after a newer login or a newer request already saved a fresher one: the last writer wins only while it is
+   * actually the newest.
+   */
+  private saveCookies(site: KmoeSite, startedAt: string) {
+    this.db.run('UPDATE kmoe_account SET cookies = ?, updated_at = ? WHERE id = 1 AND state = ? AND updated_at <= ?',
+      [this.sealer.seal(JSON.stringify(site.client.cookieJar())), now(), 'active', startedAt]);
   }
 
   private saveAccount(info: AccountInfo, site: KmoeSite, email?: string) {
@@ -212,7 +232,9 @@ export class KmoeService {
   expire(message: string) {
     const row = this.row();
     if (row.state !== 'active') return;
-    this.db.run("UPDATE kmoe_account SET state = 'expired', cookies = NULL, error = ?, updated_at = ? WHERE id = 1", [message, now()]);
+    // The cookies are kept: `site()` only uses them while the state is active, a real expiry is fixed by logging in
+    // again (which overwrites them), and a wrong guess here would otherwise cost the remembered password.
+    this.db.run("UPDATE kmoe_account SET state = 'expired', error = ?, updated_at = ? WHERE id = 1", [message, now()]);
     this.hooks.expired(message);
   }
 
