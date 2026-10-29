@@ -337,6 +337,8 @@ export function createApp(config: Config, options: AppOptions = {}) {
       return server;
     },
     async stop() {
+      // The throttle's saved state lives in this database: stop writing it before the database closes.
+      persistKmoeThrottle(null, () => {});
       clearInterval(tickTimer);
       clearInterval(heartbeat);
       app.dispose();
