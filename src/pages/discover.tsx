@@ -43,6 +43,11 @@ function ResultCard({ comic, index }: { comic: ComicSummary; index: number }) {
     <div className="relative">
       <Cover src={comic.cover} title={comic.title} className="w-full rounded-xl transition-[translate,box-shadow] duration-200 ease-out-strong group-hover/card:-translate-y-0.5 group-hover/card:shadow-float" />
       {comic.tracked && <Badge variant="secondary" className="absolute top-2 left-2 bg-card/90 shadow-soft backdrop-blur-sm">已在书架</Badge>}
+      {/* The same badges the site prints: the edition's language, and whether the series is finished or on hiatus. */}
+      {!!comic.marks?.length && <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+        {comic.marks.map(mark => <Badge key={mark} variant={mark === '日文' || mark === '英文' ? 'secondary' : 'muted'}
+          className="h-4.5 bg-card/90 px-1.5 text-[10px] leading-none shadow-soft backdrop-blur-sm">{mark}</Badge>)}
+      </div>}
     </div>
     <div className="flex min-w-0 flex-col px-0.5">
       <span className="truncate text-sm leading-5 font-medium">{comic.title}</span>
