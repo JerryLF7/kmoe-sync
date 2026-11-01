@@ -102,6 +102,11 @@ const DETAIL_PATH = /^\/(?:m\/)?c\/([A-Za-z0-9]+)\.htm$/;
 export const COMIC_KEY = /^[A-Za-z0-9]{1,32}$/;
 /** Where the site puts its takedown notice instead of the title: this comic is withheld, whoever is asking. */
 const BLOCKED_TITLE = /內容已屏蔽|内容已屏蔽|內容已被屏蔽|内容已被屏蔽|內容已遮蔽/;
+/**
+ * The hash that fetches the volume list (`/data_book.php?h=…`): pages called `data_book("…")` until 2026-10, when the
+ * call moved to the `Kmoe` object (`Kmoe.book("…")`). Both forms are still served, so accept either.
+ */
+const VOLUME_HASH = /\b(?:data_book|Kmoe\.book)\(\s*["']([0-9A-Za-z]{8,512})["']\s*\)/;
 
 /** Page key from a detail URL/path of any mirror (desktop or /m/ mobile), or null. */
 export function keyFromUrl(value: string, trustedHosts: readonly string[]): string | null {
@@ -189,9 +194,8 @@ export async function parseDetailPage(html: string, key: string, origin: string)
   // A comic the site withholds still answers 200, with this notice where the title would be
   // ("為符合要求，此書內容已屏蔽。不會說明原因請勿提問"). It is not a login problem, and must not end the session.
   if (BLOCKED_TITLE.test(title)) throw new KmoeError('content_blocked', `Kmoe 屏蔽了这部漫画：${title.slice(0, 60)}`);
-  const hashes = javascriptCalls(html, 'data_book').filter(args => args.length);
-  const dataHash = hashes[0]?.[0]?.trim() ?? '';
-  if (hashes[0]?.length !== 1 || !/^[0-9a-z]{8,512}$/i.test(dataHash)) throw siteChanged('章节数据标识');
+  const dataHash = VOLUME_HASH.exec(html)?.[1] ?? '';
+  if (!dataHash) throw siteChanged('章节数据标识');
   const cell = plainText(found.authorCell);
   const status = /\bvar\s+bookstatus\s*=\s*"([^"]*)"/.exec(html)?.[1]?.trim() || /狀態\s*[：:]\s*(\S+)/.exec(cell)?.[1] || null;
   return {
