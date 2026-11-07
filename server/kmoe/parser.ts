@@ -102,11 +102,6 @@ const DETAIL_PATH = /^\/(?:m\/)?c\/([A-Za-z0-9]+)\.htm$/;
 export const COMIC_KEY = /^[A-Za-z0-9]{1,32}$/;
 /** Where the site puts its takedown notice instead of the title: this comic is withheld, whoever is asking. */
 const BLOCKED_TITLE = /內容已屏蔽|内容已屏蔽|內容已被屏蔽|内容已被屏蔽|內容已遮蔽/;
-/**
- * The hash that fetches the volume list (`/data_book.php?h=…`): pages called `data_book("…")` until 2026-10, when the
- * call moved to the `Kmoe` object (`Kmoe.book("…")`). Both forms are still served, so accept either.
- */
-const VOLUME_HASH = /\b(?:data_book|Kmoe\.book)\(\s*["']([0-9A-Za-z]{8,512})["']\s*\)/;
 
 /** Page key from a detail URL/path of any mirror (desktop or /m/ mobile), or null. */
 export function keyFromUrl(value: string, trustedHosts: readonly string[]): string | null {
@@ -191,11 +186,12 @@ export async function parseDetailPage(html: string, key: string, origin: string)
   if (!bookId) throw siteChanged('漫画编号');
   const title = plainText(found.title) || plainText(found.docTitle).split(/\s*[:：]\s*/)[0] || '';
   if (!title) throw siteChanged('漫画标题');
-  // A comic the site withholds still answers 200, with this notice where the title would be
-  // ("為符合要求，此書內容已屏蔽。不會說明原因請勿提問"). It is not a login problem, and must not end the session.
+  // A takedown notice identifies a content restriction without probing or expiring the account.
   if (BLOCKED_TITLE.test(title)) throw new KmoeError('content_blocked', `Kmoe 屏蔽了这部漫画：${title.slice(0, 60)}`);
-  const dataHash = VOLUME_HASH.exec(html)?.[1] ?? '';
-  if (!dataHash) throw siteChanged('章节数据标识');
+  // Current pages use Kmoe.book; older mirrors still call data_book.
+  const hashes = [...javascriptCalls(html, 'Kmoe.book'), ...javascriptCalls(html, 'data_book')].filter(args => args.length);
+  const dataHash = hashes[0]?.[0]?.trim() ?? '';
+  if (hashes[0]?.length !== 1 || !/^[0-9a-z]{8,512}$/i.test(dataHash)) throw siteChanged('章节数据标识');
   const cell = plainText(found.authorCell);
   const status = /\bvar\s+bookstatus\s*=\s*"([^"]*)"/.exec(html)?.[1]?.trim() || /狀態\s*[：:]\s*(\S+)/.exec(cell)?.[1] || null;
   return {
@@ -232,11 +228,9 @@ export function parseVolumeData(payload: unknown): RemoteItem[] {
   const rows = data.voldata;
   if (!Array.isArray(rows)) throw siteChanged('章节列表');
   if (Number(data.volcount) !== rows.length) throw siteChanged('章节数量');
-  // An empty list with a blank identity is what the site returns when it withholds a comic (a compliance block)
-  // or when the page was not bound to our session. Either way it says nothing about whether the session is alive:
-  // the caller decides that on the profile page, never from this answer alone.
+  // A blank identity is ambiguous: withSession must check the profile before expiring the account.
   if (!rows.length && !String(data.bookname ?? '').trim())
-    throw new KmoeError('content_blocked', 'Kmoe 没有返回这部漫画的章节数据（可能被站点屏蔽，或这次请求没有带上登录状态）');
+    throw new KmoeError('login_required', 'Kmoe 没有返回这部漫画的章节数据，需要确认登录是否仍然有效');
   return rows.map((row, index) => {
     if (!Array.isArray(row) || row.length < 12) throw siteChanged(`第 ${index + 1} 条章节数据`);
     // Names come HTML-escaped (「娜娜&amp;小八」).
